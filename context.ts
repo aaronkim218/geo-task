@@ -4,6 +4,11 @@ import * as SQLite from 'expo-sqlite';
 export const DBContext = createContext<SQLite.SQLiteDatabase | undefined>(undefined);
 
 export const useDB = () => {
-  return useContext(DBContext)
+  const db = useContext(DBContext)
+  if (db) {
+    return db
+  } else {
+    throw new Error('DB not initialized')
+  }
 }
 

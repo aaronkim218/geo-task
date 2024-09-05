@@ -12,3 +12,13 @@ export const useDB = () => {
   }
 }
 
+export const TaskNameContext = createContext<string | undefined>(undefined);
+
+export const useTaskName = () => {
+  const taskName = useContext(TaskNameContext)
+  if (taskName) {
+    return taskName
+  } else {
+    throw new Error('Task name not set')
+  }
+}

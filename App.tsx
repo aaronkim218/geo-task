@@ -10,15 +10,19 @@ import TaskDetailsScreen from './screens/TaskDetailsScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import CreateTaskScreen from './screens/CreateTaskScreen';
 import { TaskStackParamList } from './types';
-import { DBContext } from './context';
+import { DBContext, TaskNameContext } from './context';
 import * as TaskManager from 'expo-task-manager'
 import * as Location from 'expo-location'
 import { Button, Text, View, StyleSheet, AppState, Linking } from 'react-native';
 import ErrorScreen from './screens/ErrorScreen';
 
-const LOCATION_TASK_NAME = 'background-location-task';
+const EXPO_PUBLIC_LOCATION_TASK_NAME = process.env.EXPO_PUBLIC_LOCATION_TASK_NAME;
 
-TaskManager.defineTask(LOCATION_TASK_NAME, ({ data: { eventType, region }, error }: { data: { eventType: Location.GeofencingEventType, region: Location.LocationRegion }, error: TaskManager.TaskManagerError | null }) => {
+if (!EXPO_PUBLIC_LOCATION_TASK_NAME) {
+  throw new Error('Failed to load environment variables')
+}
+
+TaskManager.defineTask(EXPO_PUBLIC_LOCATION_TASK_NAME, ({ data: { eventType, region }, error }: { data: { eventType: Location.GeofencingEventType, region: Location.LocationRegion }, error: TaskManager.TaskManagerError | null }) => {
   if (error) {
     console.error('Error handling geofencing event - code: ', error.code, ' message: ', error.message)
     return;
@@ -53,23 +57,29 @@ const App: React.FC = () => {
   const [backgroundLocationEnabled, setBackgroundLocationEnabled] = useState(false)
   const [locationEnabled, setLocationEnabled] = useState(false)
   const [dbLoading, setDBLoading] = useState(true)
-  const [initialLocation, setInitialLocation] = useState<Boolean | undefined>(undefined)
+  const [initialLocation, setInitialLocation] = useState<boolean | undefined>(undefined)
   const [locationRequested, setLocationRequested] = useState(false)
 
   const initDB = async () => {
     try {
       const db = await SQLite.openDatabaseAsync('tasks.db')
+      await db.execAsync(`DROP TABLE IF EXISTS tasks;`)
+      await db.execAsync(`DROP TABLE IF EXISTS items;`)
       await db.execAsync(`
         CREATE TABLE IF NOT EXISTS tasks (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          latitude REAL NOT NULL,
+          longitude REAL NOT NULL,
+          radius REAL NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS items (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           task_id INTEGER,
           details TEXT NOT NULL,
+          done INTEGER DEFAULT 0,
           FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
         );
       `);
@@ -77,7 +87,6 @@ const App: React.FC = () => {
         DELETE FROM tasks;
         DELETE FROM items;
       `);
-      await db.execAsync(`INSERT INTO tasks (name) VALUES ('Prepare presentation')`);
       setDB(db)
       console.log('Successfully intialized database')
     } catch (error) {
@@ -192,34 +201,36 @@ const App: React.FC = () => {
 
   return db ? (
     <DBContext.Provider value={db}>
-      <NavigationContainer>
-        <Tab.Navigator
-          screenOptions={({ route }) => ({
-            headerShown: false, // Hide header for bottom tabs
-            tabBarIcon: ({ color, size }) => {
-              let iconName: string;
+      <TaskNameContext.Provider value={EXPO_PUBLIC_LOCATION_TASK_NAME}>
+        <NavigationContainer>
+          <Tab.Navigator
+            screenOptions={({ route }) => ({
+              headerShown: false, // Hide header for bottom tabs
+              tabBarIcon: ({ color, size }) => {
+                let iconName: string;
 
-              if (route.name === 'Home') {
-                iconName = 'home-outline';
-              } else if (route.name === 'Tasks') {
-                iconName = 'list-outline';
-              } else if (route.name === 'Settings') {
-                iconName = 'settings-outline';
-              } else {
-                iconName = 'ellipse';
-              }
+                if (route.name === 'Home') {
+                  iconName = 'home-outline';
+                } else if (route.name === 'Tasks') {
+                  iconName = 'list-outline';
+                } else if (route.name === 'Settings') {
+                  iconName = 'settings-outline';
+                } else {
+                  iconName = 'ellipse';
+                }
 
-              return <Icon name={iconName} size={size} color={color} />;
-            },
-            tabBarActiveTintColor: 'tomato',
-            tabBarInactiveTintColor: 'gray',
-          })}
-        >
-          <Tab.Screen name="Home" component={HomeScreen} />
-          <Tab.Screen name="Tasks" component={TodoStackNavigator} />
-          <Tab.Screen name="Settings" component={SettingsScreen} />
-        </Tab.Navigator>
-      </NavigationContainer>
+                return <Icon name={iconName} size={size} color={color} />;
+              },
+              tabBarActiveTintColor: 'tomato',
+              tabBarInactiveTintColor: 'gray',
+            })}
+          >
+            <Tab.Screen name="Home" component={HomeScreen} />
+            <Tab.Screen name="Tasks" component={TodoStackNavigator} />
+            <Tab.Screen name="Settings" component={SettingsScreen} />
+          </Tab.Navigator>
+        </NavigationContainer>
+      </TaskNameContext.Provider>
     </DBContext.Provider>
   ) : (
     <ErrorScreen />

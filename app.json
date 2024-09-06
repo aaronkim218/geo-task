@@ -16,6 +16,10 @@
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Allow Geo Task to use your location"
+        },
+        "expo-notifications",
+        {
+          "sounds": ["assets/mySoundFile.wav"]
         }
       ]
     ],

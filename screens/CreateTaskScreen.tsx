@@ -1,4 +1,3 @@
-// screens/SettingsScreen.tsx
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, Button } from 'react-native';
@@ -138,10 +137,10 @@ const CreateTaskScreen: React.FC<Props> = ({ navigation }) => {
         }}
       >
         {selectedLocation && (
-          <Marker coordinate={selectedLocation} title='Selected location' />
-        )}
-        {selectedLocation && radius && (
-          <Circle center={selectedLocation} radius={radius} fillColor='red' />
+          <>
+            <Marker coordinate={selectedLocation} title='Selected location' />
+            {radius ? <Circle center={selectedLocation} radius={radius} fillColor='red' /> : null}
+          </>
         )}
       </MapView>
 

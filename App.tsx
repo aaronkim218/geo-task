@@ -9,12 +9,13 @@ import TasksScreen from './screens/TasksScreen';
 import TaskDetailsScreen from './screens/TaskDetailsScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import CreateTaskScreen from './screens/CreateTaskScreen';
-import { TaskStackParamList } from './types';
+import { NameResult, TaskStackParamList } from './types';
 import { DBContext, TaskNameContext } from './context';
 import * as TaskManager from 'expo-task-manager'
 import * as Location from 'expo-location'
 import { Button, Text, View, StyleSheet, AppState, Linking } from 'react-native';
 import ErrorScreen from './screens/ErrorScreen';
+import * as Notifications from 'expo-notifications'
 
 const EXPO_PUBLIC_LOCATION_TASK_NAME = process.env.EXPO_PUBLIC_LOCATION_TASK_NAME;
 
@@ -22,15 +23,35 @@ if (!EXPO_PUBLIC_LOCATION_TASK_NAME) {
   throw new Error('Failed to load environment variables')
 }
 
-TaskManager.defineTask(EXPO_PUBLIC_LOCATION_TASK_NAME, ({ data: { eventType, region }, error }: { data: { eventType: Location.GeofencingEventType, region: Location.LocationRegion }, error: TaskManager.TaskManagerError | null }) => {
+TaskManager.defineTask(EXPO_PUBLIC_LOCATION_TASK_NAME, async ({ data: { eventType, region }, error }: { data: { eventType: Location.GeofencingEventType, region: Location.LocationRegion }, error: TaskManager.TaskManagerError | null }) => {
   if (error) {
     console.error('Error handling geofencing event - code: ', error.code, ' message: ', error.message)
     return;
   }
-  if (eventType === Location.GeofencingEventType.Enter) {
-    console.log("You've entered region:", region);
-  } else if (eventType === Location.GeofencingEventType.Exit) {
-    console.log("You've left region:", region);
+  if (region.identifier) {
+    const db = await SQLite.openDatabaseAsync('tasks.db')
+    const { name } = await db.getFirstAsync(`SELECT name FROM tasks WHERE id = ?`, region.identifier) as NameResult
+    if (eventType === Location.GeofencingEventType.Enter) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "You've entered a task's location!",
+          body: `You entered the region attached to task: ${name}`,
+        },
+        trigger: null,
+      });
+      console.log("You've entered region with name: ", name, " with object:" , region);
+    } else if (eventType === Location.GeofencingEventType.Exit) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "You've exited a tasks's location!",
+          body: `You left the region attached to task: ${name}`,
+        },
+        trigger: null,
+      });
+      console.log("You've left region with name: ", name, " with object:" , region);
+    }
+  } else {
+    console.error('Region had no identifier!')
   }
 });
 
@@ -55,10 +76,11 @@ const App: React.FC = () => {
   const [db, setDB] = useState<SQLite.SQLiteDatabase | undefined>(undefined)
   const [foregroundLocationEnabled, setForegroundLocationEnabled] = useState(false)
   const [backgroundLocationEnabled, setBackgroundLocationEnabled] = useState(false)
-  const [locationEnabled, setLocationEnabled] = useState(false)
+  const [permissionsEnabled, setPermissionsEnabled] = useState(false)
   const [dbLoading, setDBLoading] = useState(true)
-  const [initialLocation, setInitialLocation] = useState<boolean | undefined>(undefined)
-  const [locationRequested, setLocationRequested] = useState(false)
+  const [initialPermissions, setInitialPermissions] = useState<boolean | undefined>(undefined)
+  const [permissionsRequested, setPermissionsRequested] = useState(false)
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false)
 
   const initDB = async () => {
     try {
@@ -111,7 +133,14 @@ const App: React.FC = () => {
       }
     }
 
-    setLocationRequested(true)
+    if (!notificationsEnabled) {
+      const { status: backgroundStatus } = await Notifications.requestPermissionsAsync();
+      if (backgroundStatus === 'granted') {
+        setNotificationsEnabled(true)
+      } 
+    }
+
+    setPermissionsRequested(true)
   };
 
   const getPermissions = async () => {
@@ -124,14 +153,18 @@ const App: React.FC = () => {
       if (bg.granted) {
         setBackgroundLocationEnabled(true)
       }
+      const n = await Notifications.getPermissionsAsync();
+      if (n.granted) {
+        setNotificationsEnabled(true)
+      }
 
-      if (initialLocation === undefined) {
-        if (fg.granted && bg.granted) {
-          setInitialLocation(true)
-          setLocationEnabled(true)
-          console.log('Location services already enabled')
+      if (initialPermissions === undefined) {
+        if (fg.granted && bg.granted && n.granted) {
+          setInitialPermissions(true)
+          setPermissionsEnabled(true)
+          console.log('Permissions already enabled')
         } else {
-          setInitialLocation(false)
+          setInitialPermissions(false)
         }
       }
     } catch (error) {
@@ -139,6 +172,7 @@ const App: React.FC = () => {
     }
   }
 
+  // USE USEFOCUSEFFECT INSTEAD
   const handleAppStateChange = async (nextAppState: string) => {
     if (nextAppState === 'active') {
       await getPermissions();
@@ -146,15 +180,16 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    // USE USEFOCUSEFFECT INSTEAD
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
     if (!db) {
       initDB()
     }
 
-    if (!locationEnabled) {
-      if (foregroundLocationEnabled && backgroundLocationEnabled) {
-        setLocationEnabled(true)
+    if (!permissionsEnabled) {
+      if (foregroundLocationEnabled && backgroundLocationEnabled && notificationsEnabled) {
+        setPermissionsEnabled(true)
       } else {
         getPermissions()
       }
@@ -163,7 +198,7 @@ const App: React.FC = () => {
     return () => {
       subscription.remove();
     };
-  }, [foregroundLocationEnabled, backgroundLocationEnabled, locationEnabled, dbLoading]);
+  }, [foregroundLocationEnabled, backgroundLocationEnabled, notificationsEnabled, permissionsEnabled, dbLoading]);
 
   const styles = StyleSheet.create({
     container: {
@@ -173,7 +208,7 @@ const App: React.FC = () => {
     },
   });
 
-  if (initialLocation === undefined || dbLoading) {
+  if (initialPermissions === undefined || dbLoading) {
     return (
       <View style={styles.container}>
         <Text>App Loading...</Text>
@@ -181,20 +216,20 @@ const App: React.FC = () => {
     ) 
   }
 
-  if (locationRequested && !locationEnabled) {
+  if (permissionsRequested && !permissionsEnabled) {
     return (
       <View style={styles.container}>
         <Text>Please go to settings and allow location services at all times and then click enable location services button again!</Text>
-        <Button onPress={() => Linking.openSettings()} title="Go to settings" />
-        <Button onPress={requestPermissions} title="Enable location services" />
+        <Button onPress={() => Linking.openSettings()} title="Go to Settings" />
+        <Button onPress={requestPermissions} title="Enable Permissions" />
       </View>
     )
   }
 
-  if (!locationEnabled) {
+  if (!permissionsEnabled) {
     return (
       <View style={styles.container}>
-        <Button onPress={requestPermissions} title="Enable location services" />
+        <Button onPress={requestPermissions} title="Enable Permissions" />
       </View>
     )
   }
@@ -205,7 +240,7 @@ const App: React.FC = () => {
         <NavigationContainer>
           <Tab.Navigator
             screenOptions={({ route }) => ({
-              headerShown: false, // Hide header for bottom tabs
+              headerShown: false,
               tabBarIcon: ({ color, size }) => {
                 let iconName: string;
 

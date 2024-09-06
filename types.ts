@@ -23,3 +23,7 @@ export type Item = {
 export type CountResult = {
   count: number
 }
+
+export type NameResult = {
+  name: string
+}

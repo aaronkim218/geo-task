@@ -1,16 +1,15 @@
 export type TaskStackParamList = {
   TaskList: undefined;
-  TaskDetails: { task: Task };
-  CreateTask: undefined;
+  CreateTask: { task: Task };
 };
 
 export type Task = {
   id: number;
   name: string;
   createdAt: Date;
-  latitude: number;
-  longitude: number;
-  radius: number;
+  latitude?: number;
+  longitude?: number;
+  radius?: number;
 }
 
 export type Item = {

@@ -1,21 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useFocusEffect } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/Ionicons';
 import * as SQLite from 'expo-sqlite';
 import HomeScreen from './screens/HomeScreen';
 import TasksScreen from './screens/TasksScreen';
-import TaskDetailsScreen from './screens/TaskDetailsScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import CreateTaskScreen from './screens/CreateTaskScreen';
-import { NameResult, TaskStackParamList } from './types';
+import { CountResult, NameResult, Task, TaskStackParamList } from './types';
 import { DBContext, TaskNameContext } from './context';
 import * as TaskManager from 'expo-task-manager'
 import * as Location from 'expo-location'
 import { Button, Text, View, StyleSheet, AppState, Linking } from 'react-native';
 import ErrorScreen from './screens/ErrorScreen';
 import * as Notifications from 'expo-notifications'
+import { Provider } from 'react-redux';
+import store from './store/store';
+import { useTasksActions } from './hooks/tasks';
+import { useRegionsActions } from './hooks/regions';
 
 const EXPO_PUBLIC_LOCATION_TASK_NAME = process.env.EXPO_PUBLIC_LOCATION_TASK_NAME;
 
@@ -67,20 +70,23 @@ const Stack = createNativeStackNavigator<TaskStackParamList>();
 const TodoStackNavigator: React.FC = () => (
   <Stack.Navigator initialRouteName="TaskList">
     <Stack.Screen name="TaskList" component={TasksScreen} options={{ title: 'Task List' }} />
-    <Stack.Screen name="TaskDetails" component={TaskDetailsScreen} options={{ title: 'Task Details' }} />
     <Stack.Screen name="CreateTask" component={CreateTaskScreen} options={{ title: 'Create Task' }} />
   </Stack.Navigator>
 );
 
-const App: React.FC = () => {
+const GeoTask: React.FC = () => {
   const [db, setDB] = useState<SQLite.SQLiteDatabase | undefined>(undefined)
   const [foregroundLocationEnabled, setForegroundLocationEnabled] = useState(false)
   const [backgroundLocationEnabled, setBackgroundLocationEnabled] = useState(false)
   const [permissionsEnabled, setPermissionsEnabled] = useState(false)
   const [dbLoading, setDBLoading] = useState(true)
+  const [tasksLoading, setTasksLoading] = useState(true)
+  const [regionsLoading, setRegionsLoading] = useState(true)
   const [initialPermissions, setInitialPermissions] = useState<boolean | undefined>(undefined)
   const [permissionsRequested, setPermissionsRequested] = useState(false)
   const [notificationsEnabled, setNotificationsEnabled] = useState(false)
+  const { dispatchSetTasks } = useTasksActions()
+  const { dispatchSetRegions } = useRegionsActions()
 
   const initDB = async () => {
     try {
@@ -92,9 +98,9 @@ const App: React.FC = () => {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
           createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          latitude REAL NOT NULL,
-          longitude REAL NOT NULL,
-          radius REAL NOT NULL
+          latitude REAL,
+          longitude REAL,
+          radius REAL
         );
 
         CREATE TABLE IF NOT EXISTS items (
@@ -172,33 +178,57 @@ const App: React.FC = () => {
     }
   }
 
-  // USE USEFOCUSEFFECT INSTEAD
-  const handleAppStateChange = async (nextAppState: string) => {
-    if (nextAppState === 'active') {
-      await getPermissions();
-    }
-  };
+  useFocusEffect(
+    React.useCallback(() => {
+      getPermissions();
 
-  useEffect(() => {
-    // USE USEFOCUSEFFECT INSTEAD
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-
-    if (!db) {
-      initDB()
-    }
-
-    if (!permissionsEnabled) {
-      if (foregroundLocationEnabled && backgroundLocationEnabled && notificationsEnabled) {
-        setPermissionsEnabled(true)
-      } else {
-        getPermissions()
+      if (!db) {
+        initDB()
       }
-    }
 
-    return () => {
-      subscription.remove();
-    };
-  }, [foregroundLocationEnabled, backgroundLocationEnabled, notificationsEnabled, permissionsEnabled, dbLoading]);
+      if (!permissionsEnabled) {
+        if (foregroundLocationEnabled && backgroundLocationEnabled && notificationsEnabled) {
+          setPermissionsEnabled(true)
+        } else {
+          getPermissions()
+        }
+      }
+
+      if (db) {
+        const fetchTasks = async () => {
+          try {
+            const cr = await db.getFirstAsync('SELECT COUNT(*) as count FROM tasks') as CountResult;
+            if (cr.count === 0) {
+              dispatchSetTasks([])
+            } else {
+              const rows = await db.getAllAsync(`SELECT id, name, createdAt, latitude, longitude, radius FROM tasks`) as Task[];
+              dispatchSetTasks(rows)
+              const regionRows = rows.filter((task) => task.latitude && task.longitude && task.radius)
+              const regions = regionRows.map((task) => {
+                return {
+                  identifier: task.id.toString(),
+                  latitude: task.latitude,
+                  longitude: task.longitude,
+                  radius: task.radius,
+                  notifyOnEnter: true,
+                  notifyOnExit: true
+                } as Location.LocationRegion
+              })
+              dispatchSetRegions(regions)
+              await Location.startGeofencingAsync(EXPO_PUBLIC_LOCATION_TASK_NAME, regions)
+            }
+          } catch (error) {
+            console.error('Error retrieving tasks: ', error)
+          } finally {
+            setTasksLoading(false)
+            setRegionsLoading(false)
+          }
+        }
+  
+        fetchTasks();
+      }
+    }, [foregroundLocationEnabled, backgroundLocationEnabled, notificationsEnabled, permissionsEnabled, dbLoading, db])
+  );
 
   const styles = StyleSheet.create({
     container: {
@@ -208,7 +238,7 @@ const App: React.FC = () => {
     },
   });
 
-  if (initialPermissions === undefined || dbLoading) {
+  if (initialPermissions === undefined || dbLoading || tasksLoading || regionsLoading) {
     return (
       <View style={styles.container}>
         <Text>App Loading...</Text>
@@ -237,39 +267,47 @@ const App: React.FC = () => {
   return db ? (
     <DBContext.Provider value={db}>
       <TaskNameContext.Provider value={EXPO_PUBLIC_LOCATION_TASK_NAME}>
-        <NavigationContainer>
-          <Tab.Navigator
-            screenOptions={({ route }) => ({
-              headerShown: false,
-              tabBarIcon: ({ color, size }) => {
-                let iconName: string;
+        <Tab.Navigator
+          screenOptions={({ route }) => ({
+            headerShown: false,
+            tabBarIcon: ({ color, size }) => {
+              let iconName: string;
 
-                if (route.name === 'Home') {
-                  iconName = 'home-outline';
-                } else if (route.name === 'Tasks') {
-                  iconName = 'list-outline';
-                } else if (route.name === 'Settings') {
-                  iconName = 'settings-outline';
-                } else {
-                  iconName = 'ellipse';
-                }
+              if (route.name === 'Home') {
+                iconName = 'home-outline';
+              } else if (route.name === 'Tasks') {
+                iconName = 'list-outline';
+              } else if (route.name === 'Settings') {
+                iconName = 'settings-outline';
+              } else {
+                iconName = 'ellipse';
+              }
 
-                return <Icon name={iconName} size={size} color={color} />;
-              },
-              tabBarActiveTintColor: 'tomato',
-              tabBarInactiveTintColor: 'gray',
-            })}
-          >
-            <Tab.Screen name="Home" component={HomeScreen} />
-            <Tab.Screen name="Tasks" component={TodoStackNavigator} />
-            <Tab.Screen name="Settings" component={SettingsScreen} />
-          </Tab.Navigator>
-        </NavigationContainer>
+              return <Icon name={iconName} size={size} color={color} />;
+            },
+            tabBarActiveTintColor: 'tomato',
+            tabBarInactiveTintColor: 'gray',
+          })}
+        >
+          <Tab.Screen name="Home" component={HomeScreen} />
+          <Tab.Screen name="Tasks" component={TodoStackNavigator} />
+          <Tab.Screen name="Settings" component={SettingsScreen} />
+        </Tab.Navigator>
       </TaskNameContext.Provider>
     </DBContext.Provider>
   ) : (
     <ErrorScreen />
   )
 };
+
+const App: React.FC = () => {
+  return (
+    <Provider store={store}>
+      <NavigationContainer>
+        <GeoTask />
+      </NavigationContainer>
+    </Provider>
+  )
+}
 
 export default App;

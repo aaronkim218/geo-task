@@ -5,7 +5,7 @@ import { CountResult, Task, TaskStackParamList } from '../types';
 import { useDB } from '../context';
 import { useFocusEffect } from '@react-navigation/native';
 import ErrorScreen from './ErrorScreen';
-import { useTasksActions } from '../hooks/tasks';
+import { useTasksActions, useTasks } from '../hooks/tasks';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store/store';
 
@@ -13,7 +13,8 @@ type Props = NativeStackScreenProps<TaskStackParamList, 'TaskList'>;
 
 const TasksScreen: React.FC<Props> = ({ navigation }) => {
   const db = useDB();
-  const tasks = useSelector((state: RootState) => state.tasks.tasks)
+  const { selectTasks } = useTasks()
+  const tasks = useSelector((state: RootState) => selectTasks(state))
   const { dispatchAddTask, dispatchDeleteTask } = useTasksActions()
 
   if (tasks) {
@@ -28,10 +29,14 @@ const TasksScreen: React.FC<Props> = ({ navigation }) => {
     }
 
     const handleAddTask = async () => {
-      const result = await db.runAsync(`INSERT INTO tasks (name) VALUES (?)`, 'Untitled')
-      const row = await db.getFirstAsync(`SELECT id, name, createdAt FROM tasks WHERE id = ?`, result.lastInsertRowId) as Task
-      dispatchAddTask(row)
-      navigation.navigate('CreateTask', { task: row })
+      try {
+        const result = await db.runAsync(`INSERT INTO tasks (name, updatedAt) VALUES (?, ?)`, 'Untitled', new Date().toISOString())
+        const row = await db.getFirstAsync(`SELECT id, name, updatedAt FROM tasks WHERE id = ?`, result.lastInsertRowId) as Task
+        dispatchAddTask(row)
+        navigation.navigate('CreateTask', { task: row })
+      } catch (error) {
+        console.error('Error creating new task: ', error)
+      }
     }
 
     return (

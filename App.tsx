@@ -8,7 +8,7 @@ import HomeScreen from './screens/HomeScreen';
 import TasksScreen from './screens/TasksScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import CreateTaskScreen from './screens/CreateTaskScreen';
-import { CountResult, NameResult, Task, TaskStackParamList } from './types';
+import { CountResult, Item, NameResult, Task, TaskStackParamList } from './types';
 import { DBContext, TaskNameContext } from './context';
 import * as TaskManager from 'expo-task-manager'
 import * as Location from 'expo-location'
@@ -19,6 +19,7 @@ import { Provider } from 'react-redux';
 import store from './store/store';
 import { useTasksActions } from './hooks/tasks';
 import { useRegionsActions } from './hooks/regions';
+import { useItemsActions } from './hooks/items';
 
 const EXPO_PUBLIC_LOCATION_TASK_NAME = process.env.EXPO_PUBLIC_LOCATION_TASK_NAME;
 
@@ -87,6 +88,8 @@ const GeoTask: React.FC = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false)
   const { dispatchSetTasks } = useTasksActions()
   const { dispatchSetRegions } = useRegionsActions()
+  const { dispatchSetItems } = useItemsActions()
+  const [itemsLoading, setItemsLoading] = useState(true)
 
   const initDB = async () => {
     try {
@@ -97,7 +100,7 @@ const GeoTask: React.FC = () => {
         CREATE TABLE IF NOT EXISTS tasks (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updatedAt DATETIME,
           latitude REAL,
           longitude REAL,
           radius REAL
@@ -105,10 +108,10 @@ const GeoTask: React.FC = () => {
 
         CREATE TABLE IF NOT EXISTS items (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          task_id INTEGER,
+          taskId INTEGER,
           details TEXT NOT NULL,
           done INTEGER DEFAULT 0,
-          FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+          FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE
         );
       `);
       await db.execAsync(`
@@ -201,7 +204,7 @@ const GeoTask: React.FC = () => {
             if (cr.count === 0) {
               dispatchSetTasks([])
             } else {
-              const rows = await db.getAllAsync(`SELECT id, name, createdAt, latitude, longitude, radius FROM tasks`) as Task[];
+              const rows = await db.getAllAsync(`SELECT id, name, updatedAt, latitude, longitude, radius FROM tasks`) as Task[];
               dispatchSetTasks(rows)
               const regionRows = rows.filter((task) => task.latitude && task.longitude && task.radius)
               const regions = regionRows.map((task) => {
@@ -226,6 +229,25 @@ const GeoTask: React.FC = () => {
         }
   
         fetchTasks();
+
+        const fetchItems = async () => {
+          try {
+            const cr = await db.getFirstAsync('SELECT COUNT(*) as count FROM items') as CountResult;
+            if (cr.count === 0) {
+              dispatchSetItems([])
+            } else {
+              const rows = await db.getAllAsync(`SELECT id, taskId, details, done FROM items`) as Item[];
+              dispatchSetItems(rows)
+            }
+          } catch (error) {
+            console.error('Error retrieving items: ', error)
+          } finally {
+            setItemsLoading(false)
+          }
+        }
+
+        fetchItems()
+
       }
     }, [foregroundLocationEnabled, backgroundLocationEnabled, notificationsEnabled, permissionsEnabled, dbLoading, db])
   );
@@ -238,7 +260,7 @@ const GeoTask: React.FC = () => {
     },
   });
 
-  if (initialPermissions === undefined || dbLoading || tasksLoading || regionsLoading) {
+  if (initialPermissions === undefined || dbLoading || tasksLoading || regionsLoading || itemsLoading) {
     return (
       <View style={styles.container}>
         <Text>App Loading...</Text>

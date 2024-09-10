@@ -3,7 +3,7 @@ import { addTask, updateTask, deleteTask, setTasks } from '../store/tasksSlice';
 import { Task } from '../types';
 import { RootState } from '../store/store';
 
-export const useTasksSelectors = () => {
+export const useTasks = () => {
   const selectTasks = (state: RootState) => state.tasks.tasks
 
   const selectTaskById = (state: RootState, id: number) => {

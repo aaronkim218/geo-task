@@ -6,7 +6,7 @@ export type TaskStackParamList = {
 export type Task = {
   id: number;
   name: string;
-  createdAt: Date;
+  updatedAt: string;
   latitude?: number;
   longitude?: number;
   radius?: number;
@@ -14,7 +14,7 @@ export type Task = {
 
 export type Item = {
   id: number;
-  task_id: number;
+  taskId: number;
   details: string;
   done: number;
 }

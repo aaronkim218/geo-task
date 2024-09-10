@@ -24,9 +24,15 @@ const tasksSlice = createSlice({
       if (index !== -1) {
         state.tasks[index] = {
           ...state.tasks[index],
-          ...action.payload.updates
+          ...action.payload.updates,
+          updatedAt: new Date().toISOString()
         };
       }
+      state.tasks.sort((a: Task, b: Task) => {
+        const aTime = new Date(a.updatedAt).getTime()
+        const bTime = new Date(b.updatedAt).getTime()
+        return bTime - aTime
+      })
     },
     deleteTask(state, action: PayloadAction<number>) {
       state.tasks = state.tasks.filter(task => task.id !== action.payload);

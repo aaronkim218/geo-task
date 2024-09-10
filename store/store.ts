@@ -1,11 +1,13 @@
 import { configureStore } from '@reduxjs/toolkit';
 import taskReducer from './tasksSlice';
 import regionsReducer from './regionsSlice'
+import itemsReducer from './itemsSlice';
 
 const store = configureStore({
   reducer: {
     tasks: taskReducer,
-    regions: regionsReducer
+    regions: regionsReducer,
+    items: itemsReducer
   },
 });
 

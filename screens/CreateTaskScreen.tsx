@@ -8,30 +8,32 @@ import MapView, { LatLng, Marker, MapPressEvent, Circle } from 'react-native-map
 import { useFocusEffect } from '@react-navigation/native';
 import ErrorScreen from './ErrorScreen';
 import Checkbox from 'expo-checkbox';
-import { useTasksSelectors, useTasksActions } from '../hooks/tasks';
+import { useTasks, useTasksActions } from '../hooks/tasks';
 import { useRegions, useRegionsActions } from '../hooks/regions';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store/store';
+import { useItems, useItemsActions } from '../hooks/items';
 
 type Props = NativeStackScreenProps<TaskStackParamList, 'CreateTask'>;
 
 const CreateTaskScreen: React.FC<Props> = ({ route }) => {
   const db = useDB();
   const taskName = useTaskName();
-  const { selectTaskById } = useTasksSelectors()
+  const { selectTaskById } = useTasks()
   const task = useSelector((state: RootState) => selectTaskById(state, route.params.task.id))
-  const [items, setItems] = useState<Item[] | undefined>(undefined)
+  const { selectItemsByTaskId, selectCurrentTempID } = useItems()
+  const items = useSelector((state: RootState) => selectItemsByTaskId(state, route.params.task.id));
   const [updatedItems, setUpdatedItems] = useState<number[]>([])
   const [location, setLocation] = useState<Location.LocationObjectCoords | undefined | null>(undefined)
   const [loadingLocation, setLoadingLocation] = useState(true)
-  const [loadingItems, setLoadingItems] = useState(true)
   const itemsRef = useRef(items)
   const updatedItemsRef = useRef(updatedItems)
-  const [lastID, setLastID] = useState(-1)
+  const currentTempID = useSelector((state: RootState) => selectCurrentTempID(state))
   const { dispatchUpdateTask } = useTasksActions()
   const regions = useRegions()
   const { dispatchAddRegion } = useRegionsActions()
   const taskRef = useRef(task)
+  const { dispatchAddItem, dispatchUpdateItem, dispatchDecrementCurrentTempID } = useItemsActions()
 
   useEffect(() => {
     taskRef.current = task;
@@ -59,26 +61,6 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
       }
 
       getLocation()
-
-      if (task) {
-        const getItems = async () => {
-          try {
-            const cr = await db.getFirstAsync('SELECT COUNT(*) as count FROM items WHERE task_id = ?', task.id) as CountResult;
-            if (cr.count === 0) {
-              setItems([])
-            } else {
-              const rows = await db.getAllAsync(`SELECT id, task_id, details, done FROM items WHERE task_id = ? ORDER BY id ASC`, task.id) as Item[];
-              setItems(rows)
-            }
-          } catch (error) {
-            console.error('Error retrieving items: ', error)
-          } finally {
-            setLoadingItems(false)
-          }
-        }
-
-        getItems()
-      }
 
       return () => {
         const iRefVal = itemsRef.current
@@ -110,13 +92,13 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
 
           const saveTask = async () => {
             try {
-              await db.runAsync(`UPDATE tasks SET name = ?, latitude = ?, longitude = ?, radius = ? WHERE id = ?`, tRefVal.name, tRefVal.latitude ? tRefVal.latitude : null, tRefVal.longitude ? tRefVal.longitude : null, tRefVal.radius ? tRefVal.radius : null, tRefVal.id)
+              await db.runAsync(`UPDATE tasks SET name = ?, updatedAt = ?, latitude = ?, longitude = ?, radius = ? WHERE id = ?`, tRefVal.name, tRefVal.updatedAt, tRefVal.latitude ? tRefVal.latitude : null, tRefVal.longitude ? tRefVal.longitude : null, tRefVal.radius ? tRefVal.radius : null, tRefVal.id)
               if (iRefVal) {
                 const u = iRefVal.filter((item) => uRefVal.includes(item.id))
                 for (const item of u) {
                   // temp ids marked by negative id
                   if (item.id < 0) {
-                    await db.runAsync('INSERT INTO items (task_id, details, done) VALUES (?, ?, ?)', tRefVal.id, item.details, item.done)
+                    await db.runAsync('INSERT INTO items (taskId, details, done) VALUES (?, ?, ?)', tRefVal.id, item.details, item.done)
                   } else {
                     await db.runAsync('UPDATE items SET details = ?, done = ? WHERE id = ?', item.details, item.done, item.id)
                   }
@@ -133,7 +115,7 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
     }, [])
   );
 
-  if (loadingLocation || loadingItems) {
+  if (loadingLocation && !task?.latitude && !task?.longitude) {
     return (
       <View>
         <Text>Loading...</Text>
@@ -143,9 +125,10 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
 
   if (task && location && items) {
     const addItem = () => {
-      const newItem: Item = { id: lastID - 1, task_id: task.id, details: '', done: 0 }
-      setLastID(lastID - 1)
-      setItems(items ? [...items, newItem] : [newItem])
+      const newItem: Item = { id: currentTempID, taskId: task.id, details: '', done: 0 }
+      dispatchDecrementCurrentTempID()
+      dispatchAddItem(newItem)
+      dispatchUpdateTask(task.id, task)
       setUpdatedItems([...updatedItems, newItem.id])
     }
   
@@ -153,22 +136,24 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
       dispatchUpdateTask(task.id, { latitude: e.nativeEvent.coordinate.latitude, longitude: e.nativeEvent.coordinate.longitude })
     }
 
-    const handleItemChange = (text: string, index: number) => {
-      const i = [...items];
-      i[index].details = text;
-      setItems(i)
-      if (!updatedItems.includes(i[index].id)) {
-        setUpdatedItems([...updatedItems, i[index].id])
+    const handleItemChange = (text: string, id: number) => {
+      dispatchUpdateItem(id, { details: text })
+      dispatchUpdateTask(task.id, task)
+      if (!updatedItems.includes(id)) {
+        setUpdatedItems([...updatedItems, id])
       }
     }
 
-    const toggleDone = async (index: number) => {
-      const i = [...items]
-      i[index].done = i[index].done === 1 ? 0: 1
-      setItems(i)
-      if (!updatedItems.includes(i[index].id)) {
-        setUpdatedItems([...updatedItems, i[index].id])
+    const toggleDone = async (id: number) => {
+      const item = items.find((item) => item.id === id)
+      if (item) {
+        dispatchUpdateItem(id, { done: item.done === 0 ? 1 : 0 })
+        dispatchUpdateTask(task.id, task)
+        if (!updatedItems.includes(id)) {
+          setUpdatedItems([...updatedItems, id])
+        }
       }
+
     }
 
     return (
@@ -180,12 +165,12 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
         <Text>Enter items:</Text>
         {items.map((item, index) => (
           <View key={item.id} style={styles.block}>
-            <Checkbox style={styles.checkbox} value={item.done === 1} onValueChange={() => toggleDone(index)} />
+            <Checkbox style={styles.checkbox} value={item.done === 1} onValueChange={() => toggleDone(item.id)} />
             <TextInput
               key={index}
               placeholder={`Item ${index + 1}`}
               value={item.details}
-              onChangeText={(text) => handleItemChange(text, index)}
+              onChangeText={(text) => handleItemChange(text, item.id)}
             />
           </View>
 

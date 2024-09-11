@@ -20,6 +20,7 @@ import store from './store/store';
 import { useTasksActions } from './hooks/tasks';
 import { useRegionsActions } from './hooks/regions';
 import { useItemsActions } from './hooks/items';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 const EXPO_PUBLIC_LOCATION_TASK_NAME = process.env.EXPO_PUBLIC_LOCATION_TASK_NAME;
 
@@ -326,7 +327,9 @@ const App: React.FC = () => {
   return (
     <Provider store={store}>
       <NavigationContainer>
-        <GeoTask />
+        <GestureHandlerRootView>
+          <GeoTask />
+        </GestureHandlerRootView>
       </NavigationContainer>
     </Provider>
   )

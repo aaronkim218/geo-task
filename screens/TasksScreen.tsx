@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, Button, StyleSheet } from 'react-native';
+import React from 'react';
+import { View, Text, Button, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { CountResult, Task, TaskStackParamList } from '../types';
+import { Task, TaskStackParamList } from '../types';
 import { useDB } from '../context';
-import { useFocusEffect } from '@react-navigation/native';
 import ErrorScreen from './ErrorScreen';
 import { useTasksActions, useTasks } from '../hooks/tasks';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store/store';
+import Swipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 
 type Props = NativeStackScreenProps<TaskStackParamList, 'TaskList'>;
 
@@ -39,6 +39,29 @@ const TasksScreen: React.FC<Props> = ({ navigation }) => {
       }
     }
 
+    const renderRightActions = (id: number) => {
+      return (
+        <TouchableOpacity onPress={() => {
+          deleteTask(id)
+        }} style={styles.deleteButton}>
+          <Text style={styles.deleteButtonText}>Delete</Text>
+        </TouchableOpacity>
+      );
+    };
+
+    const renderItem = ({ item }: { item: Task }) => {
+      return (
+        <Swipeable renderRightActions={() => renderRightActions(item.id)} >
+          <View style={styles.taskRow}>
+            <Button
+                title={item.name}
+                onPress={() => navigation.navigate('CreateTask', { task: item })}
+              />
+          </View>
+        </Swipeable>
+      );
+    } 
+
     return (
       <View style={styles.container}>
         <Button
@@ -46,18 +69,11 @@ const TasksScreen: React.FC<Props> = ({ navigation }) => {
           onPress={handleAddTask}
         />
         <Text>Tasks:</Text>
-        {tasks.map(task => (
-          <View style={styles.bruh} key={task.id}>
-            <Button
-              title={task.name}
-              onPress={() => navigation.navigate('CreateTask', { task: task })}
-            />
-            <Button
-              title='Delete'
-              onPress={() => deleteTask(task.id)}
-            />
-          </View>
-        ))}
+        <FlatList
+          data={tasks}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderItem}
+        />
       </View>
     )
   } else {
@@ -70,6 +86,26 @@ const TasksScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   bruh: {flexDirection: 'row'},
+  taskRow: {
+    backgroundColor: '#fff',
+    padding: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+  },
+  taskText: {
+    fontSize: 18,
+  },
+  deleteButton: {
+    backgroundColor: 'red',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    height: '100%',
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
 });
 
 export default TasksScreen;

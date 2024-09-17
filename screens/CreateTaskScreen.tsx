@@ -1,10 +1,10 @@
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Button } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Button, ScrollView, Dimensions } from 'react-native';
 import { Task, TaskStackParamList, Item, CountResult } from '../types';
 import { useDB, useTaskName } from '../context';
 import * as Location from 'expo-location'
-import MapView, { LatLng, Marker, MapPressEvent, Circle } from 'react-native-maps';
+import MapView, { LatLng, Marker, MapPressEvent, Circle, Region } from 'react-native-maps';
 import { useFocusEffect } from '@react-navigation/native';
 import ErrorScreen from './ErrorScreen';
 import Checkbox from 'expo-checkbox';
@@ -13,8 +13,11 @@ import { useRegions, useRegionsActions } from '../hooks/regions';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store/store';
 import { useItems, useItemsActions } from '../hooks/items';
+import MaterialIcon from 'react-native-vector-icons/MaterialIcons';
+import { TouchableOpacity } from 'react-native-gesture-handler';
 
 type Props = NativeStackScreenProps<TaskStackParamList, 'CreateTask'>;
+const { height } = Dimensions.get('window')
 
 const CreateTaskScreen: React.FC<Props> = ({ route }) => {
   const db = useDB();
@@ -24,8 +27,6 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
   const { selectItemsByTaskId, selectCurrentTempID } = useItems()
   const items = useSelector((state: RootState) => selectItemsByTaskId(state, route.params.task.id));
   const [updatedItems, setUpdatedItems] = useState<number[]>([])
-  const [location, setLocation] = useState<Location.LocationObjectCoords | undefined | null>(undefined)
-  const [loadingLocation, setLoadingLocation] = useState(true)
   const itemsRef = useRef(items)
   const updatedItemsRef = useRef(updatedItems)
   const currentTempID = useSelector((state: RootState) => selectCurrentTempID(state))
@@ -33,7 +34,8 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
   const regions = useRegions()
   const { dispatchAddRegion } = useRegionsActions()
   const taskRef = useRef(task)
-  const { dispatchAddItem, dispatchUpdateItem, dispatchDecrementCurrentTempID } = useItemsActions()
+  const { dispatchAddItem, dispatchUpdateItem, dispatchDecrementCurrentTempID, dispatchDeleteItem } = useItemsActions()
+  const [region, setRegion] = useState<Region | undefined>(undefined);
 
   useEffect(() => {
     taskRef.current = task;
@@ -52,11 +54,14 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
       const getLocation = async () => {
         try {
           const l = await Location.getCurrentPositionAsync()
-          setLocation(l.coords)
+          setRegion({
+            latitude: l.coords.latitude,
+            longitude: l.coords.longitude,
+            latitudeDelta: 0.0922,
+            longitudeDelta: 0.0421,
+          })
         } catch (error) {
           console.error('Error getting current location: ', error)
-        } finally {
-          setLoadingLocation(false)
         }
       }
 
@@ -115,15 +120,7 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
     }, [])
   );
 
-  if (loadingLocation && !task?.latitude && !task?.longitude) {
-    return (
-      <View>
-        <Text>Loading...</Text>
-      </View>
-    ) 
-  }
-
-  if (task && location && items) {
+  if (task && region && items) {
     const addItem = () => {
       const newItem: Item = { id: currentTempID, taskId: task.id, details: '', done: 0 }
       dispatchDecrementCurrentTempID()
@@ -157,16 +154,17 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
     }
 
     return (
-      <View style={styles.container}>
-        <Text>Create Task Screen</Text>
-        <TextInput value={task.name} onChangeText={(text) => {
-          dispatchUpdateTask(task.id, { name: text })
-        }} />
-        <Text>Enter items:</Text>
+      <ScrollView style={styles.container}>
+        <View style={styles.nameContainer}>
+          <TextInput style={styles.nameText} value={task.name} onChangeText={(text) => {
+            dispatchUpdateTask(task.id, { name: text })
+          }} />
+        </View>
         {items.map((item, index) => (
-          <View key={item.id} style={styles.block}>
+          <View key={item.id} style={styles.itemRow}>
             <Checkbox style={styles.checkbox} value={item.done === 1} onValueChange={() => toggleDone(item.id)} />
             <TextInput
+              style={styles.itemText}
               key={index}
               placeholder={`Item ${index + 1}`}
               value={item.details}
@@ -176,34 +174,48 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
 
         ))}
 
-        <Button
-          title='Add item'
-          onPress={addItem}
-        />
+        <TouchableOpacity activeOpacity={1} style={styles.addButtonContainer} onPress={addItem}>
+          <Text style={styles.addButton}>Click to Add Item</Text>
+        </TouchableOpacity>
 
-        <MapView 
-          style={styles.map}
-          onPress={handleMapPress}
-          initialRegion={{
-            latitude: location.latitude,
-            longitude: location.longitude,
-            latitudeDelta: 0.0922,
-            longitudeDelta: 0.0421
-          }}
-        >
-          {(task.latitude && task.longitude) && (
-            <>
-              <Marker coordinate={{ latitude: task.latitude, longitude: task.longitude }} title='Selected location' />
-              {task.radius ? <Circle center={{ latitude: task.latitude, longitude: task.longitude }} radius={task.radius} fillColor='red' /> : null}
-            </>
-          )}
-        </MapView>
+        <View style={styles.mapContainer}>
+          <MapView
+            style={styles.map}
+            onPress={handleMapPress}
+            region={region}
+            onRegionChangeComplete={(region) => {setRegion(region)}}
+          >
+            {(task.latitude && task.longitude) && (
+              <>
+                <Marker coordinate={{ latitude: task.latitude, longitude: task.longitude }} title='Center' />
+                {task.radius ? <Circle center={{ latitude: task.latitude, longitude: task.longitude }} radius={task.radius} fillColor='red' /> : null}
+              </>
+            )}
+          </MapView>
+          <View style={styles.zoomButtonsContainer}>
+            <MaterialIcon name='zoom-in' style={styles.zoomButton} onPress={() => {
+              setRegion({
+                ...region,
+                latitudeDelta: region.latitudeDelta / 2,
+                longitudeDelta: region.longitudeDelta / 2,
+              })
+            }} />
+            <MaterialIcon name='zoom-out' style={styles.zoomButton} onPress={() => {
+              setRegion({
+                ...region,
+                latitudeDelta: region.latitudeDelta * 2,
+                longitudeDelta: region.longitudeDelta * 2,
+              })
+            }} />
+          </View>
 
-        <TextInput placeholder='Radius' value={task.radius ? task.radius.toString() : undefined} onChangeText={(text) => {
-          const parsed = parseFloat(text)
-          Number.isNaN(parsed) ? alert('Please enter a valid radius') : dispatchUpdateTask(task.id, { radius: parsed })
-        }}/>
-      </View>
+          <TextInput style={styles.radius} placeholder='Radius' value={task.radius ? task.radius.toString() : undefined} onChangeText={(text) => {
+            const parsed = parseFloat(text)
+            !Number.isNaN(parsed) ? dispatchUpdateTask(task.id, { radius: parsed }) : dispatchUpdateTask(task.id, { radius: undefined })
+          }}/>
+
+        </View>
+      </ScrollView>
     )
   } else {
     return <ErrorScreen />
@@ -211,10 +223,61 @@ const CreateTaskScreen: React.FC<Props> = ({ route }) => {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center' },
-  map: { width: 400, height: 400 },
-  block: { flex: 0, flexDirection: 'row', justifyContent: 'center' },
-  checkbox: { }
+  container: { flex: 1 },
+  map: { ...StyleSheet.absoluteFillObject },
+  itemRow: { flexDirection: 'row', justifyContent: 'flex-start', paddingHorizontal: 20, marginVertical: 5 },
+  checkbox: { },
+  nameContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    padding: 20
+
+  },
+  nameText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  zoomButtonsContainer: {
+    position: 'absolute',
+    bottom: '5%',
+    right: '5%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  zoomButton: {
+    fontSize: 50,
+    color: '#000',
+  },
+  mapContainer: {
+    width: '100%',
+    height: height * 0.5,
+  },
+  itemText: {
+    fontSize: 16,
+    color: '#000',
+    marginHorizontal: 10,
+  },
+  addButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 20,
+    marginVertical: 5,
+  },
+  addButton: {
+    fontSize: 16,
+    color: '#A9A9A9',
+  },
+  radius: {
+    position: 'absolute',
+    bottom: '7.5%',
+    left: '5%',
+    color: '#000',
+    backgroundColor: '#fff',
+    fontSize: 20,
+    padding: 5,
+    minWidth: 150
+  }
 });
 
 export default CreateTaskScreen;

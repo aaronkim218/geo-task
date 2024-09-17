@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavigationContainer, useFocusEffect } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import Icon from 'react-native-vector-icons/Ionicons';
+import Ionicon from 'react-native-vector-icons/Ionicons';
 import * as SQLite from 'expo-sqlite';
 import HomeScreen from './screens/HomeScreen';
 import TasksScreen from './screens/TasksScreen';
@@ -95,8 +95,8 @@ const GeoTask: React.FC = () => {
   const initDB = async () => {
     try {
       const db = await SQLite.openDatabaseAsync('tasks.db')
-      await db.execAsync(`DROP TABLE IF EXISTS tasks;`)
-      await db.execAsync(`DROP TABLE IF EXISTS items;`)
+      // await db.execAsync(`DROP TABLE IF EXISTS tasks;`)
+      // await db.execAsync(`DROP TABLE IF EXISTS items;`)
       await db.execAsync(`
         CREATE TABLE IF NOT EXISTS tasks (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,10 +115,10 @@ const GeoTask: React.FC = () => {
           FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE
         );
       `);
-      await db.execAsync(`
-        DELETE FROM tasks;
-        DELETE FROM items;
-      `);
+      // await db.execAsync(`
+      //   DELETE FROM tasks;
+      //   DELETE FROM items;
+      // `);
       setDB(db)
       console.log('Successfully intialized database')
     } catch (error) {
@@ -306,7 +306,7 @@ const GeoTask: React.FC = () => {
                 iconName = 'ellipse';
               }
 
-              return <Icon name={iconName} size={size} color={color} />;
+              return <Ionicon name={iconName} size={size} color={color} />;
             },
             tabBarActiveTintColor: 'tomato',
             tabBarInactiveTintColor: 'gray',

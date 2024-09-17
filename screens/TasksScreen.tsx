@@ -8,6 +8,7 @@ import { useTasksActions, useTasks } from '../hooks/tasks';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store/store';
 import Swipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
+import MaterialIcon from 'react-native-vector-icons/MaterialIcons';
 
 type Props = NativeStackScreenProps<TaskStackParamList, 'TaskList'>;
 
@@ -53,10 +54,12 @@ const TasksScreen: React.FC<Props> = ({ navigation }) => {
       return (
         <Swipeable renderRightActions={() => renderRightActions(item.id)} >
           <View style={styles.taskRow}>
-            <Button
-                title={item.name}
-                onPress={() => navigation.navigate('CreateTask', { task: item })}
-              />
+            <TouchableOpacity 
+              style={styles.taskButton}
+              onPress={() => navigation.navigate('CreateTask', { task: item })}
+            >
+              <Text style={styles.taskButtonText}>{item.name}</Text>
+            </TouchableOpacity>
           </View>
         </Swipeable>
       );
@@ -64,16 +67,14 @@ const TasksScreen: React.FC<Props> = ({ navigation }) => {
 
     return (
       <View style={styles.container}>
-        <Button
-          title='Add task'
-          onPress={handleAddTask}
-        />
-        <Text>Tasks:</Text>
-        <FlatList
-          data={tasks}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={renderItem}
-        />
+        <View style={styles.tasksContainer}>
+          <FlatList
+            data={tasks}
+            keyExtractor={(item) => item.id.toString()}
+            renderItem={renderItem}
+          />
+        </View>
+        <MaterialIcon name='add-circle-outline' onPress={handleAddTask} style={styles.addTaskButton} />
       </View>
     )
   } else {
@@ -84,28 +85,46 @@ const TasksScreen: React.FC<Props> = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  bruh: {flexDirection: 'row'},
-  taskRow: {
-    backgroundColor: '#fff',
-    padding: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
+  container: {
+    flex: 1,
   },
-  taskText: {
-    fontSize: 18,
+  taskRow: {
+    justifyContent: 'center',
+    backgroundColor: '#999797',
+    borderBottomWidth: 1,
+    borderBottomColor: '#000',
+  },
+  taskButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  taskButtonText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   deleteButton: {
     backgroundColor: 'red',
     justifyContent: 'center',
     alignItems: 'center',
-    width: 80,
-    height: '100%',
+    width: '33%',
   },
   deleteButtonText: {
     color: '#fff',
     fontWeight: 'bold',
   },
+  addTaskButton: {
+    position: 'absolute',
+    bottom: '5%',
+    right: '10%',
+    fontSize: 50,
+    color: '#fff',
+  },
+  tasksContainer: {
+    flex: 1,
+    backgroundColor: '#9ccdff'
+  }
 });
 
 export default TasksScreen;
